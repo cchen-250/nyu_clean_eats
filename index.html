@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat&display=swap" rel="stylesheet">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NYU Clean Eats</title>
+  <style>
+    body {
+      font-family: 'Montserrat', sans-serif;
+      margin: 0;
+      padding: 2rem;
+      background-color: #57068c; /* NYU Purple */
+      color: white;
+    }
+
+    header {
+      text-align: center;
+      padding-bottom: 1rem;
+    }
+
+    h1 {
+      color: white;
+      font-size: 2.5rem;
+      font-weight: bolder;
+      font-family: 'Montserrat', sans-serif;
+      margin-bottom: 0.5rem;
+    }
+
+    #search-container {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    input[type="text"] {
+      padding: 0.5rem;
+      width: 250px;
+      border: none;
+      border-radius: 4px;
+      font-family: 'Montserrat', sans-serif;
+    }
+
+    button {
+      padding: 0.5rem 1rem;
+      border: none;
+      background-color: white;
+      color: #57068c;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+      font-family: 'Montserrat', sans-serif;
+    }
+    button:hover {
+      background-color: #ddd;
+    }
+
+    #filters {
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
+
+    #filters label {
+      margin: 0 10px;
+    }
+
+    #results {
+      max-width: 800px;
+      margin: auto;
+    }
+
+    .result-item {
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+      padding: 1rem;
+      border-radius: 5px;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    .result-item p {
+      margin: 0.3rem 0;
+    }
+
+    ul {
+      padding-left: 1.2rem;
+    }
+
+    h4 {
+      margin-top: 0.8rem;
+      color: #ffb3c6;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>NYU Clean Eats</h1>
+    <p>Restaurant health inspections near NYU</p>
+  </header>
+
+  <div id="search-container">
+    <input type="text" id="searchInput" placeholder="Search by restaurant name...">
+    <button onclick="search()">Search</button>
+  </div>
+
+  <div id="filters">
+    <label>
+      <input type="checkbox" id="showCritical" checked>
+      Show Critical Violations
+    </label>
+    <label>
+      <input type="checkbox" id="showNonCritical" checked>
+      Show Non-Critical Violations
+    </label>
+  </div>
+
+  <div id="results"></div>
+
+  <script>
+    async function fetchAllData() {
+      let allData = [];
+      let offset = 0;
+      const limit = 1000;
+      const baseUrl = "https://data.cityofnewyork.us/resource/43nn-pn8j.json";
+      const where = "zipcode in ('10012','10003','10011','10009','10014')";
+
+      while (true) {
+        const url = `${baseUrl}?$limit=${limit}&$offset=${offset}&$where=${where}`;
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.length === 0) break;
+
+        allData = allData.concat(data);
+        offset += limit;
+      }
+
+      return allData;
+    }
+
+    async function search() {
+      const query = document.getElementById("searchInput").value.toLowerCase();
+      const showCritical = document.getElementById("showCritical").checked;
+      const showNonCritical = document.getElementById("showNonCritical").checked;
+      const resultsContainer = document.getElementById("results");
+      resultsContainer.innerHTML = "<p>Loading inspection data, please wait...</p>";
+
+      try {
+        const data = await fetchAllData();
+
+        const restaurants = {};
+        data.forEach(item => {
+          const name = item.dba?.toLowerCase();
+          if (!name || !item.violation_description) return;
+          if (!query || name.includes(query)) {
+            const key = `${item.dba}_${item.camis}`;
+            if (!restaurants[key]) {
+              restaurants[key] = {
+                name: item.dba,
+                boro: item.boro,
+                address: `${item.building || ''} ${item.street || ''}`.trim(),
+                cuisine: item.cuisine_description,
+                critical: new Set(),
+                nonCritical: new Set()
+              };
+            }
+            if (item.critical_flag === "Critical") {
+              restaurants[key].critical.add(item.violation_description);
+            } else {
+              restaurants[key].nonCritical.add(item.violation_description);
+            }
+          }
+        });
+
+        const restaurantList = Object.values(restaurants).map(r => ({
+          ...r,
+          critical: Array.from(r.critical),
+          nonCritical: Array.from(r.nonCritical)
+        }));
+
+        const filteredList = restaurantList.filter(r => {
+          if (!showCritical && !showNonCritical) return false;
+          if (showCritical && r.critical.length > 0) return true;
+          if (showNonCritical && r.nonCritical.length > 0) return true;
+          return false;
+        });
+
+        if (filteredList.length > 0) {
+          resultsContainer.innerHTML = filteredList.map(r => `
+            <div class="result-item">
+              <h3>${r.name}</h3>
+              <p><strong>Borough:</strong> ${r.boro || 'N/A'}</p>
+              <p><strong>Address:</strong> ${r.address}</p>
+              <p><strong>Cuisine:</strong> ${r.cuisine || 'N/A'}</p>
+
+              ${showCritical && r.critical.length > 0 ? `
+                <h4>🔴 Critical Violations</h4>
+                <ul>${r.critical.map(v => `<li>${v}</li>`).join('')}</ul>
+              ` : ''}
+
+              ${showNonCritical && r.nonCritical.length > 0 ? `
+                <h4>🟡 Non-Critical Violations</h4>
+                <ul>${r.nonCritical.map(v => `<li>${v}</li>`).join('')}</ul>
+              ` : ''}
+            </div>
+          `).join('');
+        } else {
+          resultsContainer.innerHTML = "<p>No matching results based on your filters.</p>";
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error);
+        resultsContainer.innerHTML = "<p>Something went wrong. Please try again later.</p>";
+      }
+    }
+
+    document.getElementById("showCritical").addEventListener("change", search);
+    document.getElementById("showNonCritical").addEventListener("change", search);
+
+    document.getElementById("searchInput").addEventListener("keydown", function(event) {
+      if (event.key === "Enter") {
+        search();
+      }
+    });
+
+    window.onload = search;
+  </script>
+
+</body>
+</html>
