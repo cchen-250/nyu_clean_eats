@@ -130,7 +130,7 @@
       let offset = 0;
       const limit = 1000;
       const baseUrl = "https://data.cityofnewyork.us/resource/43nn-pn8j.json";
-      const where = "zipcode in ('10012','10003','10011','10009','10014')";
+      const where = "zipcode in ('10012','10003', '10004', '10011','10009', '10010','10013','10014','11201')";
 
       while (true) {
         const url = `${baseUrl}?$limit=${limit}&$offset=${offset}&$where=${where}`;
