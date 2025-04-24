@@ -53,6 +53,7 @@
       font-weight: bold;
       font-family: 'Montserrat', sans-serif;
     }
+
     button:hover {
       background-color: #ddd;
     }
@@ -61,6 +62,7 @@
       text-align: center;
       margin-bottom: 1.5rem;
     }
+
     #filters label {
       margin: 0 10px;
     }
@@ -102,6 +104,7 @@
 
   <div id="search-container">
     <input type="text" id="searchInput" placeholder="Search by restaurant name...">
+    <input type="text" id="streetInput" placeholder="Search by street name...">
     <button onclick="search()">Search</button>
   </div>
 
@@ -119,26 +122,18 @@
   <div id="results"></div>
 
   <script>
-    function normalizeQuotes(str) {
-      return str
-        .replace(/’|‘/g, "'")
-        .replace(/“|”/g, '"');
-    }
-
     async function fetchAllData() {
       let allData = [];
       let offset = 0;
       const limit = 1000;
       const baseUrl = "https://data.cityofnewyork.us/resource/43nn-pn8j.json";
-      const where = "zipcode in ('10012','10003', '10004', '10011','10009', '10010','10013','10014','11201')";
+      const where = "zipcode in ('10012','10003','10011','10009','10014')";
 
       while (true) {
         const url = `${baseUrl}?$limit=${limit}&$offset=${offset}&$where=${where}`;
         const response = await fetch(url);
         const data = await response.json();
-
         if (data.length === 0) break;
-
         allData = allData.concat(data);
         offset += limit;
       }
@@ -147,7 +142,8 @@
     }
 
     async function search() {
-      const query = normalizeQuotes(document.getElementById("searchInput").value.toLowerCase());
+      const nameQuery = document.getElementById("searchInput").value.toLowerCase();
+      const streetQuery = document.getElementById("streetInput").value.toLowerCase();
       const showCritical = document.getElementById("showCritical").checked;
       const showNonCritical = document.getElementById("showNonCritical").checked;
       const resultsContainer = document.getElementById("results");
@@ -158,9 +154,13 @@
 
         const restaurants = {};
         data.forEach(item => {
-          const name = normalizeQuotes(item.dba?.toLowerCase());
+          const name = item.dba?.toLowerCase();
+          const street = item.street?.toLowerCase();
           if (!name || !item.violation_description) return;
-          if (!query || name.includes(query)) {
+          if (
+            (!nameQuery || name.includes(nameQuery)) &&
+            (!streetQuery || (street && street.includes(streetQuery)))
+          ) {
             const key = `${item.dba}_${item.camis}`;
             if (!restaurants[key]) {
               restaurants[key] = {
@@ -225,9 +225,10 @@
     document.getElementById("showNonCritical").addEventListener("change", search);
 
     document.getElementById("searchInput").addEventListener("keydown", function(event) {
-      if (event.key === "Enter") {
-        search();
-      }
+      if (event.key === "Enter") search();
+    });
+    document.getElementById("streetInput").addEventListener("keydown", function(event) {
+      if (event.key === "Enter") search();
     });
 
     window.onload = search;
