@@ -172,6 +172,23 @@
       return allData;
     }
 
+    function sortAndHighlightViolations(violations) {
+  const pestWords = ["mice", "rat", "rats", "roaches", "flies"];
+
+  return violations
+    .sort((a, b) => {
+      const aPest = pestWords.some(word => new RegExp(`\\b${word}\\b`, 'i').test(a));
+      const bPest = pestWords.some(word => new RegExp(`\\b${word}\\b`, 'i').test(b));
+      return aPest === bPest ? 0 : aPest ? -1 : 1;
+    })
+    .map(v => {
+      const isPest = pestWords.some(word => new RegExp(`\\b${word}\\b`, 'i').test(v));
+      return `<li>${isPest ? '<strong>🚨 ' + v + '</strong>' : v}</li>`;
+    })
+    .join('');
+}
+
+
     async function search() {
       const nameQuery = document.getElementById("searchInput").value.toLowerCase();
       const streetQuery = document.getElementById("streetInput").value.toLowerCase();
@@ -235,12 +252,12 @@
 
               ${showCritical && r.critical.length > 0 ? `
                 <h4>🔴 Critical Violations</h4>
-                <ul>${r.critical.map(v => `<li>${v}</li>`).join('')}</ul>
+<ul>${sortAndHighlightViolations(r.critical)}</ul>
               ` : ''}
 
               ${showNonCritical && r.nonCritical.length > 0 ? `
                 <h4>🟡 Non-Critical Violations</h4>
-                <ul>${r.nonCritical.map(v => `<li>${v}</li>`).join('')}</ul>
+<ul>${sortAndHighlightViolations(r.nonCritical)}</ul>
               ` : ''}
             </div>
           `).join('');
