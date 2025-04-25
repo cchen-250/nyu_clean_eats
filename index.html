@@ -93,6 +93,26 @@
       margin-top: 0.8rem;
       color: #ffb3c6;
     }
+
+    #instructions {
+  max-width: 800px;
+  margin: 0 auto 1.5rem;
+  background-color: rgba(255, 255, 255, 0.1);
+  padding: 1rem;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.95rem;
+}
+
+#instructions ul {
+  margin-top: 0.5rem;
+  padding-left: 1.2rem;
+}
+
+#instructions li {
+  margin-bottom: 0.3rem;
+}
+
   </style>
 </head>
 <body>
@@ -107,6 +127,17 @@
     <input type="text" id="streetInput" placeholder="Search by street name...">
     <button onclick="search()">Search</button>
   </div>
+
+  <div id="instructions">
+    <p><strong>🔍 Tips for Searching:</strong></p>
+    <ul>
+      <li>For numbered streets, use digits only — e.g., type <em>"5 street"</em> instead of <em>"5th street"</em></li>
+      <li>Partial street names work — e.g., <em>"broadway"</em>, <em>"main"</em>, etc.</li>
+      <li>Search is not case-sensitive — uppercase or lowercase will work</li>
+      <li>Use the checkboxes to show or hide Critical and Non-Critical violations</li>
+    </ul>
+  </div>  
+  
 
   <div id="filters">
     <label>
@@ -127,7 +158,7 @@
       let offset = 0;
       const limit = 1000;
       const baseUrl = "https://data.cityofnewyork.us/resource/43nn-pn8j.json";
-      const where = "zipcode in ('10012','10003','10011','10009','10014')";
+      const where = "zipcode in ('10012','10010','10003','10004','10011','10009','10013','10014','11201')";
 
       while (true) {
         const url = `${baseUrl}?$limit=${limit}&$offset=${offset}&$where=${where}`;
