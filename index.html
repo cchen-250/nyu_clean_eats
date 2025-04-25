@@ -159,7 +159,8 @@
           if (!name || !item.violation_description) return;
           if (
             (!nameQuery || name.includes(nameQuery)) &&
-            (!streetQuery || (street && street.includes(streetQuery)))
+            (!streetQuery || (street && new RegExp(`\\b${streetQuery}\\b`, 'i').test(street))
+            )
           ) {
             const key = `${item.dba}_${item.camis}`;
             if (!restaurants[key]) {
