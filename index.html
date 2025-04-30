@@ -95,24 +95,28 @@
     }
 
     #instructions {
-  max-width: 800px;
-  margin: 0 auto 1.5rem;
-  background-color: rgba(255, 255, 255, 0.1);
-  padding: 1rem;
-  border-radius: 8px;
-  color: #fff;
-  font-size: 0.95rem;
-}
+      max-width: 800px;
+      margin: 0 auto 1.5rem;
+      background-color: rgba(255, 255, 255, 0.1);
+      padding: 1rem;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.95rem;
+    }
 
-#instructions ul {
-  margin-top: 0.5rem;
-  padding-left: 1.2rem;
-}
+    #instructions ul {
+      margin-top: 0.5rem;
+      padding-left: 1.2rem;
+    }
 
-#instructions li {
-  margin-bottom: 0.3rem;
-}
+    #instructions li {
+      margin-bottom: 0.3rem;
+    }
 
+    em {
+      font-size: 0.9em;
+      color: #ccc;
+    }
   </style>
 </head>
 <body>
@@ -137,7 +141,6 @@
       <li>Use the checkboxes to show or hide Critical and Non-Critical violations</li>
     </ul>
   </div>  
-  
 
   <div id="filters">
     <label>
@@ -173,21 +176,21 @@
     }
 
     function sortAndHighlightViolations(violations) {
-  const pestWords = ["mice", "rat", "rats", "roaches", "flies"];
+      const pestWords = ["mice", "rat", "rats", "roaches", "flies"];
 
-  return violations
-    .sort((a, b) => {
-      const aPest = pestWords.some(word => new RegExp(`\\b${word}\\b`, 'i').test(a));
-      const bPest = pestWords.some(word => new RegExp(`\\b${word}\\b`, 'i').test(b));
-      return aPest === bPest ? 0 : aPest ? -1 : 1;
-    })
-    .map(v => {
-      const isPest = pestWords.some(word => new RegExp(`\\b${word}\\b`, 'i').test(v));
-      return `<li>${isPest ? '<strong>🚨 ' + v + '</strong>' : v}</li>`;
-    })
-    .join('');
-}
-
+      return violations
+        .sort((a, b) => {
+          const aPest = pestWords.some(word => new RegExp(`\\b${word}\\b`, 'i').test(a.description));
+          const bPest = pestWords.some(word => new RegExp(`\\b${word}\\b`, 'i').test(b.description));
+          return aPest === bPest ? 0 : aPest ? -1 : 1;
+        })
+        .map(v => {
+          const isPest = pestWords.some(word => new RegExp(`\\b${word}\\b`, 'i').test(v.description));
+          const dateStr = v.date ? new Date(v.date).toLocaleDateString() : 'N/A';
+          return `<li>${isPest ? '<strong>🚨 ' + v.description + '</strong>' : v.description} <em>(${dateStr})</em></li>`;
+        })
+        .join('');
+    }
 
     async function search() {
       const nameQuery = document.getElementById("searchInput").value.toLowerCase();
@@ -207,8 +210,7 @@
           if (!name || !item.violation_description) return;
           if (
             (!nameQuery || name.includes(nameQuery)) &&
-            (!streetQuery || (street && new RegExp(`\\b${streetQuery}\\b`, 'i').test(street))
-            )
+            (!streetQuery || (street && new RegExp(`\\b${streetQuery}\\b`, 'i').test(street)))
           ) {
             const key = `${item.dba}_${item.camis}`;
             if (!restaurants[key]) {
@@ -217,23 +219,25 @@
                 boro: item.boro,
                 address: `${item.building || ''} ${item.street || ''}`.trim(),
                 cuisine: item.cuisine_description,
-                critical: new Set(),
-                nonCritical: new Set()
+                critical: [],
+                nonCritical: []
               };
             }
+
+            const violationEntry = {
+              description: item.violation_description,
+              date: item.inspection_date || ''
+            };
+
             if (item.critical_flag === "Critical") {
-              restaurants[key].critical.add(item.violation_description);
+              restaurants[key].critical.push(violationEntry);
             } else {
-              restaurants[key].nonCritical.add(item.violation_description);
+              restaurants[key].nonCritical.push(violationEntry);
             }
           }
         });
 
-        const restaurantList = Object.values(restaurants).map(r => ({
-          ...r,
-          critical: Array.from(r.critical),
-          nonCritical: Array.from(r.nonCritical)
-        }));
+        const restaurantList = Object.values(restaurants);
 
         const filteredList = restaurantList.filter(r => {
           if (!showCritical && !showNonCritical) return false;
@@ -252,12 +256,12 @@
 
               ${showCritical && r.critical.length > 0 ? `
                 <h4>🔴 Critical Violations</h4>
-<ul>${sortAndHighlightViolations(r.critical)}</ul>
+                <ul>${sortAndHighlightViolations(r.critical)}</ul>
               ` : ''}
 
               ${showNonCritical && r.nonCritical.length > 0 ? `
                 <h4>🟡 Non-Critical Violations</h4>
-<ul>${sortAndHighlightViolations(r.nonCritical)}</ul>
+                <ul>${sortAndHighlightViolations(r.nonCritical)}</ul>
               ` : ''}
             </div>
           `).join('');
@@ -285,3 +289,4 @@
 
 </body>
 </html>
+
