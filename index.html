@@ -58,6 +58,13 @@
       background-color: #ddd;
     }
 
+    input:disabled,
+    select:disabled,
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     #filters {
       text-align: center;
       margin-bottom: 1.5rem;
@@ -65,6 +72,35 @@
 
     #filters label {
       margin: 0 10px;
+    }
+
+    #boroughFilter {
+      max-width: 800px;
+      margin: 0 auto 1.5rem;
+      text-align: center;
+      background-color: rgba(255, 255, 255, 0.1);
+      padding: 1rem;
+      border-radius: 8px;
+    }
+
+    #boroughFilter label {
+      font-weight: bold;
+      margin-right: 0.6rem;
+    }
+
+    #boroughSelect {
+      padding: 0.5rem;
+      border: none;
+      border-radius: 4px;
+      font-family: 'Montserrat', sans-serif;
+      font-size: 1rem;
+      color: #57068c;
+      background-color: white;
+      cursor: pointer;
+    }
+
+    #refreshButton {
+      margin-left: 0.6rem;
     }
 
     #results {
@@ -132,13 +168,27 @@
     <button onclick="search()">Search</button>
   </div>
 
+  <div id="boroughFilter">
+    <label for="boroughSelect">Search within:</label>
+    <select id="boroughSelect">
+      <option value="Manhattan">Manhattan</option>
+      <option value="Brooklyn">Brooklyn</option>
+      <option value="Queens">Queens</option>
+      <option value="Bronx">Bronx</option>
+      <option value="Staten Island">Staten Island</option>
+    </select>
+    <button type="button" id="refreshButton" onclick="refreshCurrentBorough()">🔄 Refresh data</button>
+  </div>
+
   <div id="instructions">
     <p><strong>🔍 Tips for Searching:</strong></p>
     <ul>
+      <li>Pick a borough from the dropdown above, since that's what pulls the data</li>
+      <li>Results are limited to inspections from the last 24 months</li>
       <li>For numbered streets, use digits only — e.g., type <em>"5 street"</em> instead of <em>"5th street"</em></li>
       <li>Partial street names work — e.g., <em>"broadway"</em>, <em>"main"</em>, etc.</li>
       <li>Search is not case-sensitive — uppercase or lowercase will work</li>
-      <li>Use the checkboxes to show or hide Critical and Non-Critical violations</li>
+      <li>Use the checkboxes below the search bar to show or hide Critical and Non-Critical violations</li>
     </ul>
   </div>  
 
@@ -156,29 +206,119 @@
   <div id="results"></div>
 
   <script>
-    async function fetchAllData() {
-      let allData = [];
-      let offset = 0;
-      const limit = 1000;
-      const baseUrl = "https://data.cityofnewyork.us/resource/43nn-pn8j.json";
-      const where = "zipcode in ('10012','10010','10003','10004','10011','10009','10013','10014','11201')";
+    function delay(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
 
-      while (true) {
-        const url = `${baseUrl}?$limit=${limit}&$offset=${offset}&$where=${where}`;
-        const response = await fetch(url);
-        const data = await response.json();
-        if (data.length === 0) break;
-        allData = allData.concat(data);
-        offset += limit;
+    async function fetchPageWithRetry(url, offset, maxAttempts = 4) {
+      let lastError;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const response = await fetch(url);
+
+          if (!response.ok) {
+            const bodyText = await response.text().catch(() => '');
+            throw new Error(`API request failed at offset ${offset} (${response.status} ${response.statusText}). ${bodyText.slice(0, 200)}`);
+          }
+
+          return await response.json();
+        } catch (err) {
+          lastError = err;
+          console.warn(`Fetch attempt ${attempt}/${maxAttempts} failed at offset ${offset}:`, err.message || err);
+          if (attempt < maxAttempts) {
+            await delay(attempt * 800);
+          }
+        }
+      }
+      throw new Error(`Network request failed at offset ${offset} after ${maxAttempts} attempts: ${lastError.message || lastError}`);
+    }
+
+    function getCutoffDate(monthsAgo) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - monthsAgo);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}T00:00:00`;
+    }
+
+    const FIELDS = "camis,dba,boro,building,street,cuisine_description,critical_flag,violation_description,inspection_date";
+    const BASE_URL = "/api/inspections";
+
+    async function getRecordCount(where, label) {
+      const url = `${BASE_URL}?$select=${encodeURIComponent('count(*) as cnt')}&$where=${encodeURIComponent(where)}`;
+      const data = await fetchPageWithRetry(url, label);
+      const count = Array.isArray(data) && data[0] ? parseInt(data[0].cnt, 10) : NaN;
+      if (Number.isNaN(count)) {
+        throw new Error('Could not determine how many records match this search.');
+      }
+      return count;
+    }
+
+    function buildWhereClause(boroughs) {
+      const boroughList = boroughs.map(b => `'${b.replace(/'/g, "''")}'`).join(',');
+      const cutoffDate = getCutoffDate(24);
+      return `boro in (${boroughList}) AND inspection_date > '${cutoffDate}'`;
+    }
+
+    const boroughDataCache = new Map();
+
+    async function fetchAllData(boroughs, token, isCurrent) {
+      const where = buildWhereClause(boroughs);
+      const limit = 5000;
+
+      if (!isCurrent(token)) return null;
+
+      if (boroughDataCache.has(where)) {
+        return boroughDataCache.get(where);
       }
 
-      return allData;
+      const totalCount = await getRecordCount(where, 'count');
+      if (!isCurrent(token)) return null;
+
+      const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+      const results = new Array(totalPages).fill([]);
+      let nextPageIndex = 0;
+      const concurrency = 8;
+
+      async function worker() {
+        while (true) {
+          const pageIndex = nextPageIndex++;
+          if (pageIndex >= totalPages || !isCurrent(token)) return;
+
+          const offset = pageIndex * limit;
+          const url = `${BASE_URL}?$select=${encodeURIComponent(FIELDS)}&$limit=${limit}&$offset=${offset}&$where=${encodeURIComponent(where)}`;
+          const data = await fetchPageWithRetry(url, offset);
+          results[pageIndex] = Array.isArray(data) ? data : [];
+        }
+      }
+
+      const workerCount = Math.min(concurrency, totalPages);
+      await Promise.all(Array.from({ length: workerCount }, worker));
+
+      if (!isCurrent(token)) return null;
+
+      const flatResults = results.flat();
+      boroughDataCache.set(where, flatResults);
+      return flatResults;
+    }
+
+    function dedupeByMostRecent(violations) {
+      const latestByDescription = new Map();
+      violations.forEach(v => {
+        const existing = latestByDescription.get(v.description);
+        if (!existing || new Date(v.date) > new Date(existing.date)) {
+          latestByDescription.set(v.description, v);
+        }
+      });
+      return Array.from(latestByDescription.values());
     }
 
     function sortAndHighlightViolations(violations) {
       const pestWords = ["mice", "rat", "rats", "roaches", "flies"];
+      const deduped = dedupeByMostRecent(violations);
 
-      return violations
+      return deduped
         .sort((a, b) => {
           const aPest = pestWords.some(word => new RegExp(`\\b${word}\\b`, 'i').test(a.description));
           const bPest = pestWords.some(word => new RegExp(`\\b${word}\\b`, 'i').test(b.description));
@@ -192,20 +332,46 @@
         .join('');
     }
 
+    function normalizeText(str) {
+      return str
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function setControlsDisabled(disabled) {
+      document.getElementById("searchInput").disabled = disabled;
+      document.getElementById("streetInput").disabled = disabled;
+      document.getElementById("boroughSelect").disabled = disabled;
+      document.getElementById("refreshButton").disabled = disabled;
+      const searchButton = document.querySelector("#search-container button");
+      if (searchButton) searchButton.disabled = disabled;
+    }
+
+    let searchToken = 0;
+
     async function search() {
-      const nameQuery = document.getElementById("searchInput").value.toLowerCase();
+      const nameQuery = normalizeText(document.getElementById("searchInput").value);
       const streetQuery = document.getElementById("streetInput").value.toLowerCase();
       const showCritical = document.getElementById("showCritical").checked;
       const showNonCritical = document.getElementById("showNonCritical").checked;
+      const selectedBorough = document.getElementById("boroughSelect").value;
       const resultsContainer = document.getElementById("results");
+
+      const myToken = ++searchToken;
+
+      setControlsDisabled(true);
       resultsContainer.innerHTML = "<p>Loading inspection data, please wait...</p>";
 
       try {
-        const data = await fetchAllData();
+        const data = await fetchAllData([selectedBorough], myToken, (t) => t === searchToken);
+
+        if (myToken !== searchToken || data === null) return;
 
         const restaurants = {};
         data.forEach(item => {
-          const name = item.dba?.toLowerCase();
+          const name = item.dba ? normalizeText(item.dba) : undefined;
           const street = item.street?.toLowerCase();
           if (!name || !item.violation_description) return;
           if (
@@ -237,7 +403,7 @@
           }
         });
 
-        const restaurantList = Object.values(restaurants);
+        const restaurantList = Object.values(restaurants).sort((a, b) => a.name.localeCompare(b.name));
 
         const filteredList = restaurantList.filter(r => {
           if (!showCritical && !showNonCritical) return false;
@@ -246,8 +412,14 @@
           return false;
         });
 
+        const RENDER_CAP = 50;
+        const cappedList = filteredList.slice(0, RENDER_CAP);
+        const cappedNote = filteredList.length > RENDER_CAP
+          ? `<p>Showing ${RENDER_CAP} of ${filteredList.length} matching restaurants. Add a restaurant name or street to narrow it down.</p>`
+          : '';
+
         if (filteredList.length > 0) {
-          resultsContainer.innerHTML = filteredList.map(r => `
+          resultsContainer.innerHTML = cappedNote + cappedList.map(r => `
             <div class="result-item">
               <h3>${r.name}</h3>
               <p><strong>Borough:</strong> ${r.boro || 'N/A'}</p>
@@ -269,13 +441,29 @@
           resultsContainer.innerHTML = "<p>No matching results based on your filters.</p>";
         }
       } catch (error) {
+        if (myToken !== searchToken) {
+          return;
+        }
         console.error("Error fetching data:", error);
-        resultsContainer.innerHTML = "<p>Something went wrong. Please try again later.</p>";
+        resultsContainer.innerHTML = `<p>Something went wrong: ${error.message}</p><p>Try narrowing your borough selection, or click Search again.</p>`;
+      } finally {
+        if (myToken === searchToken) {
+          setControlsDisabled(false);
+        }
       }
+    }
+
+    function refreshCurrentBorough() {
+      const selectedBorough = document.getElementById("boroughSelect").value;
+      const where = buildWhereClause([selectedBorough]);
+      boroughDataCache.delete(where);
+      search();
     }
 
     document.getElementById("showCritical").addEventListener("change", search);
     document.getElementById("showNonCritical").addEventListener("change", search);
+
+    document.getElementById("boroughSelect").addEventListener("change", search);
 
     document.getElementById("searchInput").addEventListener("keydown", function(event) {
       if (event.key === "Enter") search();
@@ -289,4 +477,3 @@
 
 </body>
 </html>
-
