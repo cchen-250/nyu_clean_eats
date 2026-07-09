@@ -18,6 +18,8 @@ export default async (req: Request, context: Context) => {
     status: socrataResponse.status,
     headers: {
       "Content-Type": "application/json",
+      "Netlify-CDN-Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+      "Cache-Control": "public, max-age=300",
     },
   });
 };
